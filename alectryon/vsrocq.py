@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any, ClassVar, Iterable, Optional, Union
 
 import dataclasses
+import json
+import sys
 import re
 
 from .core import Document, DriverInfo, JSON, Range, TextDocument, Fragment, \
@@ -57,6 +59,9 @@ class StepForwardNotification(LSPClientNotification):
     def process_notification(self, message: LSPServerNotification):
         super().process_notification(message)
         if message.method == Notifications.PROOF_VIEW:
+            print(json.dumps(message.params, indent=2))
+            sys.stdout.flush()
+            sys.exit(0)
             self.proof_view = message.params
             # FIXME: Should be included by the server as a regular message
             self.proof_view.setdefault("pp_messages", []).extend(self.debug_messages)
@@ -156,10 +161,10 @@ class VsRocqOutput:
 
     @staticmethod
     def parse_proof_view(pv: JSON):
-        pp_proof = pv["pp_proof"]
-        messages = [m for mv in pv["pp_messages"] if (m := VsRocqOutput.parse_message(mv))]
-        goals = [VsRocqOutput.parse_goal(gv) for gv in pp_proof["goals"]] if pp_proof else []
-        return messages, goals
+        struct_proof = pv["struct_proof"]
+        struct_messages = [m for mv in pv["struct_messages"] if (m := VsRocqOutput.parse_message(mv))]
+        goals = [VsRocqOutput.parse_goal(gv) for gv in struct_proof["goals"]] if struct_proof else []
+        return struct_messages, goals
 
 class VsRocqClient(LSPClient):
     LANGUAGE_ID = "coq"
@@ -189,7 +194,7 @@ class VsRocqClient(LSPClient):
         "diagnostics": {"full": False},
     }
     # … and add our own config:
-    INITIALIZATION_OPTIONS["goals"]["ppmode"] = "String" # Don't return Pp boxes
+    INITIALIZATION_OPTIONS["goals"]["ppmode"] = "Structured" # Return pp boxes
     INITIALIZATION_OPTIONS["goals"]["messages"]["full"] = True # Include errors and warnings with proof views
     INITIALIZATION_OPTIONS["proof"]["mode"] = 0 # Step manually
     INITIALIZATION_OPTIONS["proof"]["block"] = False # Continue past the first error
@@ -239,7 +244,8 @@ class VsRocqFile(LSPFile[VsRocqClient]):
                 break
 
 class VsRocq(LSPDriver[VsRocqClient]):
-    BIN = "vsrocqtop"
+    BIN = "/home/charlie/documents/education/pds/vsrocq/language-server/_build/install/default/bin/vsrocqtop"
+    # BIN = "vsrocqtop"
     NAME = "VsRocq"
     VERSION_ARGS = ("-print-version",)
 
@@ -276,3 +282,7 @@ def annotate(chunks: list[str], vsrocq_args=(), fpath="-", binpath=None) \
     [[Sentence(contents='Check 1.', messages=[Message(contents='1\n     : nat')], goals=[])]]
     """
     return VsRocq(args=vsrocq_args, fpath=fpath, binpath=binpath).annotate(chunks)
+
+if __name__ == "__main__":
+    print(">>>>>>>>>>>>> vsrocq.py")
+    annotate([Path(sys.argv[1]).read_text()], fpath=sys.argv[1])
