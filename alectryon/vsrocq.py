@@ -139,8 +139,8 @@ MESSAGE_FILTER = re.compile(
 )
 
 class VsRocqOutput:
-    PP_WIDTH = 78
-    PP_TAG_MAP = { # match pygments and vsrocq client as close as possible
+    PP_WIDTH = 78   # default vsrocq width
+    PP_TAG_MAP = {  # match pygments and vsrocq client as close as possible
         ("constr.keyword",)     : "Keyword",
         ("constr.evar",)        : "Name.Label",
         ("constr.type",)        : "Keyword.Type",
