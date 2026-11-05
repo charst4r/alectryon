@@ -41,6 +41,7 @@ from dominate.util import raw as dom_raw
 
 from .pygments_lexer import CoqLexer, TokenizedStrLexer, meta
 from .pygments_style import AlectryonStyle
+from .tokens import TokenizedStr
 
 def resolve_token(kind):
     # FIXME: add support for Lean
@@ -75,6 +76,10 @@ def get_lexer(lang: str):
         lexer.add_filter(StripErrorsTokenFilter())
     lexer.add_filter(TokenMergeFilter())
     return lexer
+
+def get_lexer_for(code, lang):
+    lexer = "tokstr" if isinstance(code, TokenizedStr) else lang
+    return get_lexer(lexer)
 
 def add_tokens(tokens, lang="coq"):
     """Register additional `tokens` to add custom syntax highlighting.
@@ -193,7 +198,7 @@ def highlight_html(code, lang, style=None):
     >>> str(highlight_html("Program Fixpoint a.", lang="coq"))
     '<span class="kn">Program Fixpoint</span> <span class="nf">a</span>.'
     """
-    return dom_raw("".join(_highlight(code, get_lexer(lang), get_formatter("html", style))))
+    return dom_raw("".join(_highlight(code, get_lexer_for(code, lang), get_formatter("html", style))))
 
 PYGMENTS_LATEX_PREFIX = r"\begin{Verbatim}[commandchars=\\\{\}]" + "\n"
 PYGMENTS_LATEX_SUFFIX = r"\end{Verbatim}"
@@ -206,7 +211,7 @@ def highlight_latex(code, lang,
 
     Like ``highlight_html``, but return a plain LaTeX string.
     """
-    before, tex, after = _highlight(code, get_lexer(lang), get_formatter("latex", style))
+    before, tex, after = _highlight(code, get_lexer_for(code, lang), get_formatter("latex", style))
     return prefix + before + tex + after + suffix
 
 HIGHLIGHTERS = {"html": highlight_html, "latex": highlight_latex}
