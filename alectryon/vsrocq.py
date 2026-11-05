@@ -33,7 +33,7 @@ from .lsp import LSPClient, LSPClientInitializeRequest, LSPClientNotification, \
     LSPClientRequest, LSPDiagnostic, LSPDriver, LSPFile, LSPServerException, \
     LSPServerNotification, LSPServerNotifications
 from .coq import CoqIdents
-from .pp_render import Segment, layout, pp_of_json
+from .pp_layout import Segment, layout, pp_of_json
 from .tokens import Token, Tokens, TokenizedStr
 
 class Notifications(LSPServerNotifications):
@@ -140,19 +140,14 @@ MESSAGE_FILTER = re.compile(
 
 class VsRocqOutput:
     PP_WIDTH = 78
-    PP_TAG_MAP = { # tags come from rocq itself #todo: check if mapping coherent
+    PP_TAG_MAP = { # match pygments and vsrocq client as close as possible
         ("constr.keyword",)     : "Keyword",
-        ("constr.evar",)        : "Name.Variable.Instance",
+        ("constr.evar",)        : "Name.Label",
         ("constr.type",)        : "Keyword.Type",
         ("constr.notation",)    : "Operator",
         ("constr.variable",)    : "Name.Variable",
-        ("constr.reference",)   : "Name.Constant",
+        ("constr.reference",)   : "Name.Function",
         ("constr.path",)        : "Name.Namespace",
-        ("module.definition",)  : "Name.Namespace",
-        ("module.keyword",)     : "Keyword.Namespace",
-        ("tactic.keyword",)     : "Keyword",
-        ("tactic.primitive",)   : "Name.Builtin",
-        ("tactic.string",)      : "String"
     }
 
     @staticmethod
@@ -164,8 +159,8 @@ class VsRocqOutput:
                 tokens.append(Token(slice(pos, pos + len(txt)), (tag,)))
             pos += len(txt)
         s = "".join(txt for _, txt in segments)
-        res = TokenizedStr(s, Tokens(tokens, slice(0, len(tokens)), slice(0, len(s))), VsRocqOutput.PP_TAG_MAP)
-        return res
+        resTokens = Tokens(tokens, slice(0, len(tokens)), slice(0, len(s)))
+        return TokenizedStr(s, resTokens, VsRocqOutput.PP_TAG_MAP)
 
     @staticmethod
     def parse_pp(pp: PP) -> str:
@@ -183,7 +178,10 @@ class VsRocqOutput:
 
     @staticmethod
     def parse_hyp(hv):
-        return Hypothesis(names=hv["ids"], body=VsRocqOutput.parse_pp(hv["body"]) if hv["body"] is not None else None, type=VsRocqOutput.parse_pp(hv["_type"]))
+        names = hv["ids"]
+        body = VsRocqOutput.parse_pp(hv["body"]) if hv["body"] is not None else None
+        type = VsRocqOutput.parse_pp(hv["_type"])
+        return Hypothesis(names, body, type)
 
     @staticmethod
     def parse_goal(gv: JSON):
@@ -315,7 +313,3 @@ def annotate(chunks: list[str], vsrocq_args=(), fpath="-", binpath=None) \
     [[Sentence(contents='Check 1.', messages=[Message(contents='1\n     : nat')], goals=[])]]
     """
     return VsRocq(args=vsrocq_args, fpath=fpath, binpath=binpath).annotate(chunks)
-
-if __name__ == "__main__":
-    print(">>>>>>>>>>>>> vsrocq.py")
-    annotate([Path(sys.argv[1]).read_text()], fpath=sys.argv[1])
