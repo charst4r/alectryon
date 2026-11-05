@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any, ClassVar, Iterable, Optional, Union
 
 import dataclasses
-import json
 import sys
 import re
 
@@ -34,6 +33,8 @@ from .lsp import LSPClient, LSPClientInitializeRequest, LSPClientNotification, \
     LSPClientRequest, LSPDiagnostic, LSPDriver, LSPFile, LSPServerException, \
     LSPServerNotification, LSPServerNotifications
 from .coq import CoqIdents
+from .pp_render import Segment, layout, pp_of_json
+from .tokens import Token, Tokens, TokenizedStr
 
 class Notifications(LSPServerNotifications):
     PROOF_VIEW = "prover/proofView"
@@ -59,12 +60,9 @@ class StepForwardNotification(LSPClientNotification):
     def process_notification(self, message: LSPServerNotification):
         super().process_notification(message)
         if message.method == Notifications.PROOF_VIEW:
-            print(json.dumps(message.params, indent=2))
-            sys.stdout.flush()
-            sys.exit(0)
             self.proof_view = message.params
             # FIXME: Should be included by the server as a regular message
-            self.proof_view.setdefault("pp_messages", []).extend(self.debug_messages)
+            self.proof_view.setdefault("struct_messages", []).extend(self.debug_messages)
         elif message.method == Notifications.DEBUG_MESSAGE:
             self.debug_messages.append([5, message.params["message"]])
         elif message.method == Notifications.BLOCK_ON_ERROR:
@@ -141,23 +139,58 @@ MESSAGE_FILTER = re.compile(
 )
 
 class VsRocqOutput:
+    PP_WIDTH = 78
+    PP_TAG_MAP = { # tags come from rocq itself #todo: check if mapping coherent
+        ("constr.keyword",)     : "Keyword",
+        ("constr.evar",)        : "Name.Variable.Instance",
+        ("constr.type",)        : "Keyword.Type",
+        ("constr.notation",)    : "Operator",
+        ("constr.variable",)    : "Name.Variable",
+        ("constr.reference",)   : "Name.Constant",
+        ("constr.path",)        : "Name.Namespace",
+        ("module.definition",)  : "Name.Namespace",
+        ("module.keyword",)     : "Keyword.Namespace",
+        ("tactic.keyword",)     : "Keyword",
+        ("tactic.primitive",)   : "Name.Builtin",
+        ("tactic.string",)      : "String"
+    }
+
+    @staticmethod
+    def tokenize(segments: list[Segment]) -> TokenizedStr:
+        tokens: list[Token] = []
+        pos = 0
+        for tag, txt in segments:
+            if tag is not None and (tag,) in VsRocqOutput.PP_TAG_MAP:
+                tokens.append(Token(slice(pos, pos + len(txt)), (tag,)))
+            pos += len(txt)
+        s = "".join(txt for _, txt in segments)
+        res = TokenizedStr(s, Tokens(tokens, slice(0, len(tokens)), slice(0, len(s))), VsRocqOutput.PP_TAG_MAP)
+        return res
+
+    @staticmethod
+    def parse_pp(pp: PP) -> str:
+        if isinstance(pp, str):
+            return pp
+        return VsRocqOutput.tokenize(layout(pp_of_json(pp), VsRocqOutput.PP_WIDTH))
+
     @staticmethod
     def parse_message(mv: list[Any]) -> Message | None:
          # LATER: Include message level in message and do filtering by level, as
          # a transform.  Needs a fix for rocq-prover/vsrocq#1201.
         _level, pp = mv
+        pp = VsRocqOutput.parse_pp(pp)
         return Message(pp) if not MESSAGE_FILTER.search(pp) else None
 
     @staticmethod
     def parse_hyp(hv):
-        return Hypothesis(names=hv["ids"], body=hv["body"], type=hv["_type"])
+        return Hypothesis(names=hv["ids"], body=VsRocqOutput.parse_pp(hv["body"]) if hv["body"] is not None else None, type=VsRocqOutput.parse_pp(hv["_type"]))
 
     @staticmethod
     def parse_goal(gv: JSON):
         name = gv.get("name")
         name = name if isinstance(name, str) else None # Discard numeric goal IDs
         hyps = [VsRocqOutput.parse_hyp(hv) for hv in gv["hypotheses"]]
-        return Goal(name, gv["goal"], hyps)
+        return Goal(name, VsRocqOutput.parse_pp(gv["goal"]), hyps)
 
     @staticmethod
     def parse_proof_view(pv: JSON):
