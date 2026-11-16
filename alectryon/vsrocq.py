@@ -25,7 +25,6 @@ from typing import Any, ClassVar, Iterable, Optional, Union
 
 import dataclasses
 import re
-from time import time
 
 
 from .core import Document, DriverInfo, JSON, Range, TextDocument, Fragment, \
@@ -170,10 +169,7 @@ class VsRocqFile(LSPFile[VsRocqClient]):
         Since all other offsets in VSRocq are in codepoints, we use this method
         only to count sentences, and we discard the sentence boundaries.
         """
-        before = time()
         req = DocumentStateRequest(self.client, self.uri)
-        after = time()
-        print(f"[TIME]: {after - before}")
         document: str = must(req.send().result)["document"]
         sep = document.find("Document using sentences_by_end map")
         assert sep >= 0, "Unexpected VsRocq documentState format"
