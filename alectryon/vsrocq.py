@@ -25,6 +25,8 @@ from typing import Any, ClassVar, Iterable, Optional, Union
 
 import dataclasses
 import re
+from time import time
+
 
 from .core import Document, DriverInfo, JSON, Range, TextDocument, Fragment, \
     Goal, Hypothesis, Message, Positioned, Sentence, must
@@ -82,48 +84,8 @@ class URIRequest(LSPClientRequest):
     def params(self):
         return { "textDocument": { "uri": self.uri } }
 
-class DocumentProofsRequest(URIRequest):
-    METHOD = "prover/documentProofs"
-
 class DocumentStateRequest(URIRequest):
     METHOD = "prover/documentState"
-
-@dataclasses.dataclass
-class ExponentialBackoff:
-    delay = 0.05
-    delay_multiplier = 2
-    max_delay = 30
-
-    def ready(self) -> bool:
-        raise NotImplementedError
-
-    def wait(self):
-        import time
-        while not self.ready():
-            time.sleep(self.delay)
-            self.delay = min(self.delay * self.delay_multiplier, self.max_delay)
-
-@dataclasses.dataclass
-class VsRocqReadyMonitor(ExponentialBackoff):
-    """Wait until the document is parsed.
-
-    We need this to get answers to StepForward queries; waiting on
-    ``DocumentState`` doesn't work because it succeeds with empty contents if the
-    document isn't parsed yet.
-    """
-    PARSING_NOT_FINISHED: ClassVar[int] = -32802
-
-    client: "VsRocqClient"
-    uri: str
-
-    def ready(self):
-        try:
-            DocumentProofsRequest(self.client, self.uri).send()
-        except LSPServerException as e:
-            if e.code == self.PARSING_NOT_FINISHED:
-                return False
-            raise
-        return True
 
 PP = Union[str, list["PP"]]
 
@@ -208,7 +170,10 @@ class VsRocqFile(LSPFile[VsRocqClient]):
         Since all other offsets in VSRocq are in codepoints, we use this method
         only to count sentences, and we discard the sentence boundaries.
         """
+        before = time()
         req = DocumentStateRequest(self.client, self.uri)
+        after = time()
+        print(f"[TIME]: {after - before}")
         document: str = must(req.send().result)["document"]
         sep = document.find("Document using sentences_by_end map")
         assert sep >= 0, "Unexpected VsRocq documentState format"
@@ -217,8 +182,6 @@ class VsRocqFile(LSPFile[VsRocqClient]):
             yield int(m.group("beg")), int(m.group("end"))
 
     def process(self) -> Iterable[Positioned[Fragment]]:
-        VsRocqReadyMonitor(self.client, self.uri).wait()
-
         diagnostics: set[LSPDiagnostic] = set()
 
         for _ in self._compute_ranges(): # Counting ranges is valuable, but the offsets are unusable
@@ -239,7 +202,8 @@ class VsRocqFile(LSPFile[VsRocqClient]):
                 break
 
 class VsRocq(LSPDriver[VsRocqClient]):
-    BIN = "vsrocqtop"
+    # BIN = "vsrocqtop"
+    BIN = "/home/charlie/documents/education/pds/vsrocq/language-server/_build/install/default/bin/vsrocqtop"
     NAME = "VsRocq"
     VERSION_ARGS = ("-print-version",)
 
